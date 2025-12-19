@@ -1,0 +1,39 @@
+{
+  "processedAt": "2025-12-19T22:54:18.969Z",
+  "totalImages": 5,
+  "imagesWithCelebrities": 0,
+  "uniqueCelebrities": [],
+  "celebrityAppearances": {},
+  "results": [
+    {
+      "file": "/Users/rhyssullivan/src/epstein-files-browser/files/VOL00001/IMAGES/0001/EFTA00000001.pdf",
+      "page": 1,
+      "totalPages": 1,
+      "celebrities": []
+    },
+    {
+      "file": "/Users/rhyssullivan/src/epstein-files-browser/files/VOL00001/IMAGES/0001/EFTA00000002.pdf",
+      "page": 1,
+      "totalPages": 1,
+      "celebrities": []
+    },
+    {
+      "file": "/Users/rhyssullivan/src/epstein-files-browser/files/VOL00001/IMAGES/0001/EFTA00000003.pdf",
+      "page": 1,
+      "totalPages": 1,
+      "celebrities": []
+    },
+    {
+      "file": "/Users/rhyssullivan/src/epstein-files-browser/files/VOL00001/IMAGES/0001/EFTA00000004.pdf",
+      "page": 1,
+      "totalPages": 1,
+      "celebrities": []
+    },
+    {
+      "file": "/Users/rhyssullivan/src/epstein-files-browser/files/VOL00001/IMAGES/0001/EFTA00000005.pdf",
+      "page": 1,
+      "totalPages": 1,
+      "celebrities": []
+    }
+  ]
+}
