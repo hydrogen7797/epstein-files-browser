@@ -8,9 +8,11 @@ import {
   FileItem,
   getFilesCache,
   appendToFilesCache,
-  getThumbnail,
-  setThumbnail,
 } from "@/lib/cache";
+import {
+  getCelebritiesAboveConfidence,
+  getFilesForCelebrity,
+} from "@/lib/celebrity-data";
 
 const WORKER_URL =
   process.env.NODE_ENV === "development"
@@ -37,107 +39,36 @@ function getFileId(key: string): string {
   return match ? match[0] : key;
 }
 
-// PDF Thumbnail component - only loads when rendered (virtualized)
+// Thumbnail component - loads precomputed thumbnail from R2
 function PdfThumbnail({ fileKey }: { fileKey: string }) {
-  const [thumbnail, setThumbnailState] = useState<string | null>(() => {
-    return getThumbnail(fileKey) || null;
-  });
-  const [loading, setLoading] = useState(!getThumbnail(fileKey));
+  const [error, setError] = useState(false);
+  // Convert PDF path to thumbnail path: VOL00001/IMAGES/0001/EFTA00000001.pdf -> thumbnails/VOL00001/IMAGES/0001/EFTA00000001.jpg
+  const thumbnailUrl = `${WORKER_URL}/thumbnails/${fileKey.replace(".pdf", ".jpg")}`;
 
-  useEffect(() => {
-    if (getThumbnail(fileKey)) {
-      setThumbnailState(getThumbnail(fileKey)!);
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    async function loadThumbnail() {
-      try {
-        const pdfjsLib = await import("pdfjs-dist");
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-
-        const fileUrl = `${WORKER_URL}/${fileKey}`;
-        const loadingTask = pdfjsLib.getDocument({
-          url: fileUrl,
-          disableAutoFetch: true,
-          disableStream: true,
-        });
-        const pdf = await loadingTask.promise;
-
-        if (cancelled) {
-          pdf.destroy();
-          return;
-        }
-
-        const page = await pdf.getPage(1);
-        const scale = 0.3;
-        const viewport = page.getViewport({ scale });
-
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d")!;
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-
-        await page.render({
-          canvasContext: context,
-          viewport,
-          canvas,
-        }).promise;
-
-        if (!cancelled) {
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
-          setThumbnail(fileKey, dataUrl);
-          setThumbnailState(dataUrl);
-        }
-
-        page.cleanup();
-        pdf.destroy();
-      } catch (err) {
-        console.error("Failed to load thumbnail:", err);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadThumbnail();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fileKey]);
+  if (error) {
+    return (
+      <div className="h-32 bg-zinc-800 rounded-lg overflow-hidden flex items-center justify-center">
+        <svg
+          className="w-12 h-12 text-red-500"
+          fill="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4z" />
+        </svg>
+      </div>
+    );
+  }
 
   return (
     <div className="h-32 bg-zinc-800 rounded-lg overflow-hidden">
-      {loading && (
-        <div className="flex items-center justify-center h-full">
-          <div className="animate-spin rounded-full h-6 w-6 border-2 border-zinc-600 border-t-zinc-300"></div>
-        </div>
-      )}
-
-      {!loading && thumbnail && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={thumbnail}
-          alt="PDF thumbnail"
-          className="w-full h-full object-cover object-top"
-        />
-      )}
-
-      {!loading && !thumbnail && (
-        <div className="flex items-center justify-center h-full">
-          <svg
-            className="w-12 h-12 text-red-500"
-            fill="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4z" />
-          </svg>
-        </div>
-      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={thumbnailUrl}
+        alt="PDF thumbnail"
+        className="w-full h-full object-cover object-top"
+        loading="lazy"
+        onError={() => setError(true)}
+      />
     </div>
   );
 }
@@ -200,10 +131,17 @@ export default function Home() {
   const [collectionFilter, setCollectionFilter] = useQueryState("collection", {
     defaultValue: "All",
   });
+  const [celebrityFilter, setCelebrityFilter] = useQueryState("celebrity", {
+    defaultValue: "All",
+  });
+
+  // Get celebrities with >99% confidence for the dropdown
+  const celebrities = getCelebritiesAboveConfidence(99);
 
   const parentRef = useRef<HTMLDivElement>(null);
   const columns = useColumns(parentRef);
 
+  // Fetch files from R2 listing (paginated)
   const fetchFiles = useCallback(async (cursorParam?: string, prefix?: string) => {
     try {
       setLoading(true);
@@ -244,15 +182,51 @@ export default function Home() {
     }
   }, []);
 
-  // Fetch files on initial load (only for "All" collection)
+  // Fetch files by specific keys (for celebrity filter)
+  const fetchFilesByKeys = useCallback(async (keys: string[]) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await fetch(`${WORKER_URL}/api/files-by-keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keys }),
+      });
+      if (!response.ok) throw new Error("Failed to fetch files");
+
+      const data: { files: FileItem[]; totalReturned: number } = await response.json();
+      setFiles(data.files);
+      setCursor(null);
+      setHasMore(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Fetch files on initial load (only for "All" collection and no celebrity filter)
   useEffect(() => {
-    if (files.length === 0 && collectionFilter === "All") {
+    if (files.length === 0 && collectionFilter === "All" && celebrityFilter === "All") {
       fetchFiles();
     }
-  }, [fetchFiles, files.length, collectionFilter]);
+  }, [fetchFiles, files.length, collectionFilter, celebrityFilter]);
 
-  // Refetch when collection filter changes
+  // Handle filter changes
   useEffect(() => {
+    // Celebrity filter takes precedence
+    if (celebrityFilter !== "All") {
+      const celebrityFileKeys = getFilesForCelebrity(celebrityFilter, 99);
+      // Optionally filter by collection too
+      const filteredKeys = collectionFilter === "All" 
+        ? celebrityFileKeys 
+        : celebrityFileKeys.filter(key => key.startsWith(collectionFilter));
+      fetchFilesByKeys(filteredKeys);
+      return;
+    }
+
+    // No celebrity filter - use regular listing
     const prefix = collectionFilter === "All" ? undefined : collectionFilter;
     if (collectionFilter === "All" && cachedData.files.length > 0) {
       // Use cached data for "All"
@@ -267,10 +241,10 @@ export default function Home() {
       fetchFiles(undefined, prefix);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collectionFilter]);
+  }, [collectionFilter, celebrityFilter]);
 
+  // Client-side search filter only
   const filteredFiles = files.filter((file) => {
-    // Search filter (client-side only, collection filter is server-side)
     if (!searchQuery) return true;
     const fileId = getFileId(file.key);
     return (
@@ -294,8 +268,11 @@ export default function Home() {
 
   const virtualRows = virtualizer.getVirtualItems();
 
-  // Load more when we reach the end
+  // Load more when we reach the end (only for non-celebrity filtered views)
   useEffect(() => {
+    // Don't paginate when celebrity filter is active (all results loaded at once)
+    if (celebrityFilter !== "All") return;
+    
     const lastItem = virtualRows[virtualRows.length - 1];
     if (!lastItem) return;
 
@@ -304,7 +281,7 @@ export default function Home() {
       const prefix = collectionFilter === "All" ? undefined : collectionFilter;
       fetchFiles(cursor, prefix);
     }
-  }, [virtualRows, rows.length, hasMore, loading, cursor, fetchFiles, collectionFilter]);
+  }, [virtualRows, rows.length, hasMore, loading, cursor, fetchFiles, collectionFilter, celebrityFilter]);
 
   return (
     <div className="h-screen flex flex-col bg-zinc-950 text-zinc-100">
@@ -337,7 +314,7 @@ export default function Home() {
             </a>
           </div>
 
-          <div className="flex gap-4 items-center">
+          <div className="flex gap-4 items-center flex-wrap">
             <div>
               <select
                 value={collectionFilter}
@@ -351,6 +328,20 @@ export default function Home() {
                 <option value="VOL00004">VOL00004</option>
               </select>
             </div>
+            <div>
+              <select
+                value={celebrityFilter}
+                onChange={(e) => setCelebrityFilter(e.target.value)}
+                className="px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="All">All People</option>
+                {celebrities.map((celeb) => (
+                  <option key={celeb.name} value={celeb.name}>
+                    {celeb.name} ({celeb.count})
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="flex-1 max-w-md">
               <input
                 type="text"
@@ -362,7 +353,7 @@ export default function Home() {
             </div>
             <div className="text-sm text-zinc-400">
               {files.length.toLocaleString()} files loaded
-              {(searchQuery || collectionFilter !== "All") && ` (${filteredFiles.length} matching)`}
+              {(searchQuery || collectionFilter !== "All" || celebrityFilter !== "All") && ` (${filteredFiles.length} matching)`}
             </div>
           </div>
         </div>

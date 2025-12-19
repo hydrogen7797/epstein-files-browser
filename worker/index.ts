@@ -12,10 +12,49 @@ export default {
       return new Response(null, {
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
         },
       });
+    }
+
+    // Get files by keys endpoint (POST with array of keys)
+    if (path === "api/files-by-keys" && request.method === "POST") {
+      const body = await request.json() as { keys: string[] };
+      const keys = body.keys || [];
+      
+      // Fetch metadata for each file in parallel
+      const files: { key: string; size: number; uploaded: string }[] = [];
+      
+      await Promise.all(
+        keys.map(async (key) => {
+          const obj = await env.R2_BUCKET.head(key);
+          if (obj) {
+            files.push({
+              key: obj.key,
+              size: obj.size,
+              uploaded: obj.uploaded.toISOString(),
+            });
+          }
+        })
+      );
+
+      // Sort by key to maintain consistent order
+      files.sort((a, b) => a.key.localeCompare(b.key));
+
+      return new Response(
+        JSON.stringify({
+          files,
+          totalReturned: files.length,
+        }),
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Cache-Control": "public, max-age=60",
+          },
+        }
+      );
     }
 
     // List files endpoint

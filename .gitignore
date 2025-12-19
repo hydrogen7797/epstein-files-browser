@@ -39,9 +39,11 @@ yarn-error.log*
 # wrangler / cloudflare
 .wrangler
 .dev.vars
+rclone.conf
 
 # local files
 /files
+/thumbnails
 
 # typescript
 *.tsbuildinfo
