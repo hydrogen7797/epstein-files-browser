@@ -26,10 +26,22 @@ export function setFilesCache(data: FilesCache): void {
 }
 
 export function appendToFilesCache(newFiles: FileItem[], cursor: string | null, hasMore: boolean): void {
+  // Dedupe by key
+  const existingKeys = new Set(filesCache.files.map(f => f.key));
+  const uniqueNewFiles = newFiles.filter(f => !existingKeys.has(f.key));
+  
   filesCache = {
-    files: [...filesCache.files, ...newFiles],
+    files: [...filesCache.files, ...uniqueNewFiles],
     cursor,
     hasMore,
+  };
+}
+
+export function resetFilesCache(): void {
+  filesCache = {
+    files: [],
+    cursor: null,
+    hasMore: true,
   };
 }
 

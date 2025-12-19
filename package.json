@@ -13,7 +13,9 @@
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.956.0",
     "@cloudflare/next-on-pages": "^1.13.16",
+    "@tanstack/react-virtual": "^3.13.13",
     "next": "16.1.0",
+    "nuqs": "^2.8.5",
     "pdfjs-dist": "^5.4.449",
     "react": "19.2.3",
     "react-dom": "19.2.3",
