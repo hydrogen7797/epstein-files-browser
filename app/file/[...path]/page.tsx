@@ -262,14 +262,14 @@ export default function FilePage({
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
       {/* Header */}
       <header className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 sm:py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <Link
               href="/"
-              className="text-zinc-400 hover:text-white transition-colors"
+              className="text-zinc-400 hover:text-white transition-colors flex-shrink-0"
             >
               <svg
-                className="w-6 h-6"
+                className="w-5 h-5 sm:w-6 sm:h-6"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -282,38 +282,80 @@ export default function FilePage({
                 />
               </svg>
             </Link>
-            <h1 className="text-lg font-mono text-white">{fileId}</h1>
+            <h1 className="text-sm sm:text-lg font-mono text-white truncate">{fileId}</h1>
             {totalPages > 0 && (
-              <span className="text-sm text-zinc-500">
+              <span className="text-xs sm:text-sm text-zinc-500 hidden sm:inline flex-shrink-0">
                 {pages.length} / {totalPages} pages
               </span>
             )}
           </div>
 
           {/* Navigation */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
             {prevId && (
               <Link
                 href={`/file/${encodeURIComponent(getFilePath(prevId))}`}
-                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
+                className="p-1.5 sm:px-3 sm:py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
+                aria-label="Previous file"
               >
-                Previous
+                <svg
+                  className="w-5 h-5 sm:hidden"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Previous</span>
               </Link>
             )}
             {nextId && (
               <Link
                 href={`/file/${encodeURIComponent(getFilePath(nextId))}`}
-                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
+                className="p-1.5 sm:px-3 sm:py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
+                aria-label="Next file"
               >
-                Next
+                <svg
+                  className="w-5 h-5 sm:hidden"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5l7 7-7 7"
+                  />
+                </svg>
+                <span className="hidden sm:inline">Next</span>
               </Link>
             )}
             <a
               href={fileUrl}
               download
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors"
+              className="p-1.5 sm:px-3 sm:py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors"
+              aria-label="Download PDF"
             >
-              Download PDF
+              <svg
+                className="w-5 h-5 sm:hidden"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+              <span className="hidden sm:inline">Download PDF</span>
             </a>
           </div>
         </div>
