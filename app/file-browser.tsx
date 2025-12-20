@@ -8,6 +8,7 @@ import {
   getFilesForCelebrity,
 } from "@/lib/celebrity-data";
 import { CelebrityCombobox } from "@/components/celebrity-combobox";
+import { useFiles } from "@/lib/files-context";
 
 const WORKER_URL =
   process.env.NODE_ENV === "development"
@@ -84,11 +85,8 @@ function FileCard({ file }: { file: FileItem }) {
   );
 }
 
-interface FileBrowserProps {
-  initialFiles: FileItem[];
-}
-
-export function FileBrowser({ initialFiles }: FileBrowserProps) {
+export function FileBrowser() {
+  const { files: initialFiles } = useFiles();
   const [files, setFiles] = useState<FileItem[]>(initialFiles);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

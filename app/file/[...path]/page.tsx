@@ -4,6 +4,7 @@ import { use, useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getPdfPages, setPdfPages } from "@/lib/cache";
+import { useFiles } from "@/lib/files-context";
 
 const WORKER_URL = process.env.NODE_ENV === "development" 
   ? "http://localhost:8787" 
@@ -65,40 +66,6 @@ function getFileId(key: string): string {
   return match ? match[0] : key;
 }
 
-function getAdjacentFileId(currentId: string, offset: number): string | null {
-  const match = currentId.match(/EFTA(\d+)/);
-  if (!match) return null;
-
-  const num = parseInt(match[1], 10) + offset;
-  if (num < 1) return null;
-
-  return `EFTA${num.toString().padStart(8, "0")}`;
-}
-
-function getFilePath(fileId: string): string {
-  const match = fileId.match(/EFTA(\d+)/);
-  if (!match) return fileId;
-
-  const num = parseInt(match[1], 10);
-
-  let vol: string;
-  if (num <= 3158) {
-    vol = "VOL00001";
-  } else if (num <= 3857) {
-    vol = "VOL00002";
-  } else if (num <= 5704) {
-    vol = "VOL00003";
-  } else {
-    vol = "VOL00004";
-  }
-
-  const subfolder = Math.ceil(num / 1000)
-    .toString()
-    .padStart(4, "0");
-
-  return `${vol}/IMAGES/${subfolder}/${fileId}.pdf`;
-}
-
 export default function FilePage({
   params,
 }: {
@@ -109,8 +76,11 @@ export default function FilePage({
   const fileId = getFileId(filePath);
 
   const router = useRouter();
-  const prevId = getAdjacentFileId(fileId, -1);
-  const nextId = getAdjacentFileId(fileId, 1);
+  const { getAdjacentFile } = useFiles();
+  
+  // Get adjacent file paths from context
+  const prevPath = getAdjacentFile(filePath, -1);
+  const nextPath = getAdjacentFile(filePath, 1);
 
   const fileUrl = `${WORKER_URL}/${filePath}`;
 
@@ -125,13 +95,13 @@ export default function FilePage({
         return;
       }
 
-      if (e.key === "ArrowLeft" && prevId) {
-        router.push(`/file/${encodeURIComponent(getFilePath(prevId))}`);
-      } else if (e.key === "ArrowRight" && nextId) {
-        router.push(`/file/${encodeURIComponent(getFilePath(nextId))}`);
+      if (e.key === "ArrowLeft" && prevPath) {
+        router.push(`/file/${encodeURIComponent(prevPath)}`);
+      } else if (e.key === "ArrowRight" && nextPath) {
+        router.push(`/file/${encodeURIComponent(nextPath)}`);
       }
     },
-    [prevId, nextId, router]
+    [prevPath, nextPath, router]
   );
 
   useEffect(() => {
@@ -238,14 +208,12 @@ export default function FilePage({
     // Small delay to let the UI settle, then start prefetching
     const prefetchTimeout = setTimeout(() => {
       // Prefetch next first (more likely to be navigated to)
-      if (nextId) {
-        const nextPath = getFilePath(nextId);
+      if (nextPath) {
         prefetchPdf(nextPath);
       }
 
       // Then prefetch previous
-      if (prevId) {
-        const prevPath = getFilePath(prevId);
+      if (prevPath) {
         // Slight delay so next gets priority
         timeoutIds.push(setTimeout(() => prefetchPdf(prevPath), 500));
       }
@@ -256,7 +224,7 @@ export default function FilePage({
     return () => {
       timeoutIds.forEach(clearTimeout);
     };
-  }, [loading, nextId, prevId]);
+  }, [loading, nextPath, prevPath]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
@@ -292,9 +260,9 @@ export default function FilePage({
 
           {/* Navigation */}
           <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-            {prevId && (
+            {prevPath && (
               <Link
-                href={`/file/${encodeURIComponent(getFilePath(prevId))}`}
+                href={`/file/${encodeURIComponent(prevPath)}`}
                 className="p-1.5 sm:px-3 sm:py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
                 aria-label="Previous file"
               >
@@ -314,9 +282,9 @@ export default function FilePage({
                 <span className="hidden sm:inline">Previous</span>
               </Link>
             )}
-            {nextId && (
+            {nextPath && (
               <Link
-                href={`/file/${encodeURIComponent(getFilePath(nextId))}`}
+                href={`/file/${encodeURIComponent(nextPath)}`}
                 className="p-1.5 sm:px-3 sm:py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
                 aria-label="Next file"
               >
