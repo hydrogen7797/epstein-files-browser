@@ -70,6 +70,28 @@ export default {
       });
     }
 
+    // Serve PDF images manifest
+    if (path === "api/pdf-manifest") {
+      const manifestObject = await env.R2_BUCKET.get("pdfs-as-jpegs/manifest.json");
+      
+      if (!manifestObject) {
+        return new Response(JSON.stringify({ error: "Manifest not found" }), {
+          status: 404,
+          headers: {
+            ...cacheHeaders,
+            "Content-Type": "application/json",
+          },
+        });
+      }
+
+      return new Response(manifestObject.body, {
+        headers: {
+          ...cacheHeaders,
+          "Content-Type": "application/json",
+        },
+      });
+    }
+
     // Handle OG metadata endpoint for social media bots
     if (path === "og" || path === "api/og") {
       const filePath = url.searchParams.get("file");

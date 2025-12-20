@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useQueryState } from "nuqs";
-import { FileItem, getPdfPages, setPdfPages } from "@/lib/cache";
+import { FileItem, getPdfPages, setPdfPages, getPdfManifest } from "@/lib/cache";
 import {
   Popover,
   PopoverContent,
@@ -133,13 +133,53 @@ function getCelebritiesForPage(filePath: string, pageNumber: number): { name: st
 // Track in-progress prefetch operations to avoid duplicates
 const prefetchingSet = new Set<string>();
 
-// Prefetch a PDF in the background
+// Get the image URL for a specific PDF page
+function getPageImageUrl(pdfKey: string, pageNum: number): string {
+  const basePath = pdfKey.replace(".pdf", "");
+  const pageStr = String(pageNum).padStart(3, "0");
+  return `${WORKER_URL}/pdfs-as-jpegs/${basePath}/page-${pageStr}.jpg`;
+}
+
+// Load pages from pre-rendered images
+async function loadPagesFromImages(filePath: string, pageCount: number): Promise<string[]> {
+  const urls: string[] = [];
+  for (let i = 1; i <= pageCount; i++) {
+    urls.push(getPageImageUrl(filePath, i));
+  }
+  return urls;
+}
+
+// Prefetch PDF pages in the background (uses pre-rendered images if available)
 async function prefetchPdf(filePath: string): Promise<void> {
   if (getPdfPages(filePath) || prefetchingSet.has(filePath)) return;
   
   prefetchingSet.add(filePath);
   
   try {
+    const manifest = getPdfManifest();
+    const manifestEntry = manifest?.[filePath];
+    
+    // If we have pre-rendered images in the manifest, use those
+    if (manifestEntry && manifestEntry.pages > 0) {
+      const imageUrls = await loadPagesFromImages(filePath, manifestEntry.pages);
+      
+      // Prefetch the images by creating Image objects
+      await Promise.all(
+        imageUrls.map((url) => {
+          return new Promise<void>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve();
+            img.onerror = () => resolve(); // Still resolve on error
+            img.src = url;
+          });
+        })
+      );
+      
+      setPdfPages(filePath, imageUrls);
+      return;
+    }
+    
+    // Fallback to client-side PDF rendering if no pre-rendered images
     const fileUrl = `${WORKER_URL}/${filePath}`;
     const pdfjsLib = await import("pdfjs-dist");
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -345,7 +385,7 @@ function FileModal({
     };
   }, [handleKeyDown, handleTouchStart, handleTouchEnd]);
 
-  // Load PDF
+  // Load PDF pages (uses pre-rendered images if available, falls back to PDF rendering)
   useEffect(() => {
     // Always reset state immediately when file changes
     setError(null);
@@ -364,8 +404,25 @@ function FileModal({
 
     let cancelled = false;
 
-    async function loadPdf() {
+    async function loadPages() {
       try {
+        const manifest = getPdfManifest();
+        const manifestEntry = manifest?.[filePath];
+        
+        // If we have pre-rendered images in the manifest, use those
+        if (manifestEntry && manifestEntry.pages > 0) {
+          const imageUrls = await loadPagesFromImages(filePath, manifestEntry.pages);
+          
+          if (cancelled) return;
+          
+          // Set URLs directly - browser will load them
+          setPages(imageUrls);
+          setPdfPages(filePath, imageUrls);
+          setLoading(false);
+          return;
+        }
+        
+        // Fallback to client-side PDF rendering
         const pdfjsLib = await import("pdfjs-dist");
         pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
@@ -414,7 +471,7 @@ function FileModal({
       }
     }
 
-    loadPdf();
+    loadPages();
 
     return () => {
       cancelled = true;

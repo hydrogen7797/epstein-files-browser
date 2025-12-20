@@ -91,3 +91,25 @@ export function setPdfPages(key: string, pages: string[]): void {
 export function clearPdfCache(): void {
   pdfPagesCache.clear();
 }
+
+// PDF images manifest cache
+export interface PdfManifestEntry {
+  pages: number;
+}
+
+export type PdfManifest = Record<string, PdfManifestEntry>;
+
+let pdfManifest: PdfManifest | null = null;
+
+export function getPdfManifest(): PdfManifest | null {
+  return pdfManifest;
+}
+
+export function setPdfManifest(manifest: PdfManifest): void {
+  pdfManifest = manifest;
+}
+
+export function getPageCount(pdfKey: string): number | null {
+  if (!pdfManifest) return null;
+  return pdfManifest[pdfKey]?.pages ?? null;
+}
