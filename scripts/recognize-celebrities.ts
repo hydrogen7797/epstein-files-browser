@@ -103,8 +103,9 @@ async function processPage(task: PageTask): Promise<PageResult> {
   const tempFile = `/tmp/pdf-page-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.png`;
 
   try {
+    // Use 72 DPI - faster and still good enough for face detection
     await execAsync(
-      `pdftoppm -png -r 100 -f ${page} -l ${page} -singlefile "${pdfPath}" "${tempFile.replace(".png", "")}"`
+      `pdftoppm -png -r 72 -f ${page} -l ${page} -singlefile "${pdfPath}" "${tempFile.replace(".png", "")}"`
     );
 
     const imageBuffer = fs.readFileSync(tempFile);

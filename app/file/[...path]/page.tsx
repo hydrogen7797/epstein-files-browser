@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useEffect, useState, useRef } from "react";
+import { use, useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { getPdfPages, setPdfPages } from "@/lib/cache";
 
 const WORKER_URL = process.env.NODE_ENV === "development" 
@@ -56,10 +57,36 @@ export default function FilePage({
   const filePath = decodeURIComponent(path.join("/"));
   const fileId = getFileId(filePath);
 
+  const router = useRouter();
   const prevId = getAdjacentFileId(fileId, -1);
   const nextId = getAdjacentFileId(fileId, 1);
 
   const fileUrl = `${WORKER_URL}/${filePath}`;
+
+  // Keyboard navigation
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      // Don't navigate if user is typing in an input
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      if (e.key === "ArrowLeft" && prevId) {
+        router.push(`/file/${encodeURIComponent(getFilePath(prevId))}`);
+      } else if (e.key === "ArrowRight" && nextId) {
+        router.push(`/file/${encodeURIComponent(getFilePath(nextId))}`);
+      }
+    },
+    [prevId, nextId, router]
+  );
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
 
   const [pages, setPages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
