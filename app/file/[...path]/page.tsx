@@ -149,17 +149,17 @@ export default function FilePage({
 
   useEffect(() => {
     // Check cache for pre-rendered pages
-    const cachedPages = getPdfPages(filePath);
+    const cached = getPdfPages(filePath);
     
     // Already have cached pages
-    if (cachedPages && cachedPages.length > 0) {
-      setPages(cachedPages);
-      setTotalPages(cachedPages.length);
+    if (cached && cached.length > 0) {
+      setPages(cached);
+      setTotalPages(cached.length);
       setLoading(false);
       return;
     }
 
-    // Reset state for new file
+    // Reset state for new file (only if not cached)
     setPages([]);
     setError(null);
     setLoading(true);
