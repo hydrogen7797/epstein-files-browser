@@ -9,6 +9,57 @@ const WORKER_URL = process.env.NODE_ENV === "development"
   ? "http://localhost:8787" 
   : "https://epstein-files.rhys-669.workers.dev";
 
+// Track in-progress prefetch operations to avoid duplicates
+const prefetchingSet = new Set<string>();
+
+async function prefetchPdf(filePath: string): Promise<void> {
+  // Skip if already cached or already prefetching
+  if (getPdfPages(filePath) || prefetchingSet.has(filePath)) {
+    return;
+  }
+
+  prefetchingSet.add(filePath);
+
+  try {
+    const fileUrl = `${WORKER_URL}/${filePath}`;
+    const pdfjsLib = await import("pdfjs-dist");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
+    const loadingTask = pdfjsLib.getDocument(fileUrl);
+    const pdf = await loadingTask.promise;
+
+    const renderedPages: string[] = [];
+
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const scale = 2;
+      const viewport = page.getViewport({ scale });
+
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d")!;
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      await page.render({
+        canvasContext: context,
+        viewport,
+        canvas,
+      }).promise;
+
+      const dataUrl = canvas.toDataURL("image/png");
+      renderedPages.push(dataUrl);
+    }
+
+    if (renderedPages.length > 0) {
+      setPdfPages(filePath, renderedPages);
+    }
+  } catch {
+    // Silently fail prefetch - it's just an optimization
+  } finally {
+    prefetchingSet.delete(filePath);
+  }
+}
+
 function getFileId(key: string): string {
   const match = key.match(/EFTA\d+/);
   return match ? match[0] : key;
@@ -88,10 +139,12 @@ export default function FilePage({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  const [pages, setPages] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Check cache immediately to avoid loading flash for prefetched PDFs
+  const cachedPages = getPdfPages(filePath);
+  const [pages, setPages] = useState<string[]>(cachedPages ?? []);
+  const [loading, setLoading] = useState(!cachedPages);
   const [error, setError] = useState<string | null>(null);
-  const [totalPages, setTotalPages] = useState(0);
+  const [totalPages, setTotalPages] = useState(cachedPages?.length ?? 0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -175,6 +228,35 @@ export default function FilePage({
       cancelled = true;
     };
   }, [fileUrl, filePath]);
+
+  // Prefetch adjacent PDFs after current one is loaded
+  useEffect(() => {
+    if (loading) return;
+
+    const timeoutIds: ReturnType<typeof setTimeout>[] = [];
+
+    // Small delay to let the UI settle, then start prefetching
+    const prefetchTimeout = setTimeout(() => {
+      // Prefetch next first (more likely to be navigated to)
+      if (nextId) {
+        const nextPath = getFilePath(nextId);
+        prefetchPdf(nextPath);
+      }
+
+      // Then prefetch previous
+      if (prevId) {
+        const prevPath = getFilePath(prevId);
+        // Slight delay so next gets priority
+        timeoutIds.push(setTimeout(() => prefetchPdf(prevPath), 500));
+      }
+    }, 100);
+
+    timeoutIds.push(prefetchTimeout);
+
+    return () => {
+      timeoutIds.forEach(clearTimeout);
+    };
+  }, [loading, nextId, prevId]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col">
