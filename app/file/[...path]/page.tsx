@@ -182,6 +182,7 @@ export default function FilePage({
   }, [collectionFilter, celebrityFilter]);
 
   const fileUrl = `${WORKER_URL}/${filePath}`;
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Keyboard navigation
   const handleKeyDown = useCallback(
@@ -203,10 +204,42 @@ export default function FilePage({
     [prevPath, nextPath, router, queryString]
   );
 
+  // Touch/swipe navigation for mobile
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: TouchEvent) => {
+    if (!touchStartRef.current) return;
+    
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    const swipeThreshold = 50;
+    
+    // Only trigger if horizontal swipe is dominant and exceeds threshold
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > swipeThreshold) {
+      if (deltaX > 0 && prevPath) {
+        router.push(`/file/${encodeURIComponent(prevPath)}${queryString}`);
+      } else if (deltaX < 0 && nextPath) {
+        router.push(`/file/${encodeURIComponent(nextPath)}${queryString}`);
+      }
+    }
+    
+    touchStartRef.current = null;
+  }, [prevPath, nextPath, router, queryString]);
+
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
+    window.addEventListener("touchstart", handleTouchStart);
+    window.addEventListener("touchend", handleTouchEnd);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [handleKeyDown, handleTouchStart, handleTouchEnd]);
 
   // Check cache immediately to avoid loading flash for prefetched PDFs
   const cachedPages = getPdfPages(filePath);

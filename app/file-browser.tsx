@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useQueryState } from "nuqs";
 import { FileItem, getPdfPages, setPdfPages } from "@/lib/cache";
 import {
@@ -252,6 +252,7 @@ function FileModal({
   const [pages, setPages] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   
   const filePath = file.key;
   const fileId = getFileId(filePath);
@@ -271,14 +272,44 @@ function FileModal({
     [onClose, onPrev, onNext, hasPrev, hasNext]
   );
 
+  // Touch/swipe navigation for mobile
+  const handleTouchStart = useCallback((e: TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: TouchEvent) => {
+    if (!touchStartRef.current) return;
+    
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    const swipeThreshold = 50;
+    
+    // Only trigger if horizontal swipe is dominant and exceeds threshold
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > swipeThreshold) {
+      if (deltaX > 0 && hasPrev) {
+        onPrev();
+      } else if (deltaX < 0 && hasNext) {
+        onNext();
+      }
+    }
+    
+    touchStartRef.current = null;
+  }, [hasPrev, hasNext, onPrev, onNext]);
+
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("touchstart", handleTouchStart);
+    window.addEventListener("touchend", handleTouchEnd);
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchend", handleTouchEnd);
       document.body.style.overflow = "";
     };
-  }, [handleKeyDown]);
+  }, [handleKeyDown, handleTouchStart, handleTouchEnd]);
 
   // Load PDF
   useEffect(() => {
