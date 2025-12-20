@@ -430,13 +430,18 @@ function FileModal({
     const keys = nextFileKeys.split(',').filter(Boolean);
     const timeoutIds: ReturnType<typeof setTimeout>[] = [];
     
-    // Start prefetching immediately for first file, then stagger the rest
-    keys.forEach((key, index) => {
-      const timeoutId = setTimeout(() => {
-        prefetchPdf(key);
-      }, index * 100); // 100ms delay between each prefetch
-      timeoutIds.push(timeoutId);
-    });
+    // Wait before starting prefetch to not compete with thumbnails
+    // Only prefetch the next 2 files to reduce bandwidth competition
+    const startDelay = setTimeout(() => {
+      keys.slice(0, 2).forEach((key, index) => {
+        const timeoutId = setTimeout(() => {
+          prefetchPdf(key);
+        }, index * 500); // 500ms delay between each prefetch
+        timeoutIds.push(timeoutId);
+      });
+    }, 1000); // Wait 1 second before starting any prefetch
+    
+    timeoutIds.push(startDelay);
     
     return () => {
       timeoutIds.forEach(clearTimeout);
@@ -801,8 +806,7 @@ export function FileBrowser() {
             <FileCard 
               key={file.key} 
               file={file} 
-              onClick={() => setOpenFile(file.key)} 
-              onMouseEnter={() => prefetchPdf(file.key)}
+              onClick={() => setOpenFile(file.key)}
             />
           ))}
         </div>

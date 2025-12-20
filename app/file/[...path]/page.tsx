@@ -364,24 +364,22 @@ export default function FilePage({
     const paths = nextPathsKey.split(',').filter(Boolean);
     const timeoutIds: ReturnType<typeof setTimeout>[] = [];
 
-    // Prefetch next files with staggered delays
-    paths.forEach((path, index) => {
-      const timeoutId = setTimeout(() => {
-        prefetchPdf(path);
-      }, index * 100);
-      timeoutIds.push(timeoutId);
-    });
-
-    // Also prefetch previous with lower priority
-    if (prevPath) {
-      const prevTimeoutId = setTimeout(() => prefetchPdf(prevPath), 600);
-      timeoutIds.push(prevTimeoutId);
-    }
+    // Wait before starting prefetch, then only prefetch next 2 files
+    const startDelay = setTimeout(() => {
+      paths.slice(0, 2).forEach((path, index) => {
+        const timeoutId = setTimeout(() => {
+          prefetchPdf(path);
+        }, index * 500);
+        timeoutIds.push(timeoutId);
+      });
+    }, 500);
+    
+    timeoutIds.push(startDelay);
 
     return () => {
       timeoutIds.forEach(clearTimeout);
     };
-  }, [loading, nextPathsKey, prevPath]);
+  }, [loading, nextPathsKey]);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
