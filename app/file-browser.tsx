@@ -341,9 +341,11 @@ function FileModal({
               return (
                 <div key={index} className="bg-card rounded-2xl shadow-xl overflow-hidden border border-border">
                   <div className="relative">
-                    <div className="absolute top-3 left-3 px-2.5 py-1 bg-background/80 backdrop-blur-sm rounded-lg text-xs font-medium text-muted-foreground border border-border">
-                      Page {index + 1}
-                    </div>
+                    {pages.length > 1 && (
+                      <div className="absolute top-3 left-3 px-2.5 py-1 bg-background/80 backdrop-blur-sm rounded-lg text-xs font-medium text-muted-foreground border border-border">
+                        Page {index + 1}
+                      </div>
+                    )}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={dataUrl}
@@ -438,9 +440,7 @@ export function FileBrowser() {
   const [celebrityFilter, setCelebrityFilter] = useQueryState("celebrity", {
     defaultValue: "All",
   });
-  
-  // Modal state
-  const [selectedFileIndex, setSelectedFileIndex] = useState<number | null>(null);
+  const [openFile, setOpenFile] = useQueryState("file");
 
   // Get celebrities with >99% confidence for the dropdown
   const celebrities = getCelebritiesAboveConfidence(99);
@@ -472,26 +472,32 @@ export function FileBrowser() {
     return str ? `?${str}` : "";
   }, [collectionFilter, celebrityFilter]);
   
-  // Modal navigation handlers
+  // Modal state - find index from file key
+  const selectedFileIndex = useMemo(() => {
+    if (!openFile) return null;
+    const index = filteredFiles.findIndex(f => f.key === openFile);
+    return index >= 0 ? index : null;
+  }, [openFile, filteredFiles]);
+  
   const selectedFile = selectedFileIndex !== null ? filteredFiles[selectedFileIndex] : null;
   const hasPrev = selectedFileIndex !== null && selectedFileIndex > 0;
   const hasNext = selectedFileIndex !== null && selectedFileIndex < filteredFiles.length - 1;
   
   const handlePrev = useCallback(() => {
     if (selectedFileIndex !== null && selectedFileIndex > 0) {
-      setSelectedFileIndex(selectedFileIndex - 1);
+      setOpenFile(filteredFiles[selectedFileIndex - 1].key);
     }
-  }, [selectedFileIndex]);
+  }, [selectedFileIndex, filteredFiles, setOpenFile]);
   
   const handleNext = useCallback(() => {
     if (selectedFileIndex !== null && selectedFileIndex < filteredFiles.length - 1) {
-      setSelectedFileIndex(selectedFileIndex + 1);
+      setOpenFile(filteredFiles[selectedFileIndex + 1].key);
     }
-  }, [selectedFileIndex, filteredFiles.length]);
+  }, [selectedFileIndex, filteredFiles, setOpenFile]);
   
   const handleClose = useCallback(() => {
-    setSelectedFileIndex(null);
-  }, []);
+    setOpenFile(null);
+  }, [setOpenFile]);
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
@@ -589,8 +595,8 @@ export function FileBrowser() {
       {/* File Grid */}
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {filteredFiles.map((file, index) => (
-            <FileCard key={file.key} file={file} onClick={() => setSelectedFileIndex(index)} />
+          {filteredFiles.map((file) => (
+            <FileCard key={file.key} file={file} onClick={() => setOpenFile(file.key)} />
           ))}
         </div>
 
