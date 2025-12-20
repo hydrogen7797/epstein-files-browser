@@ -78,7 +78,6 @@ function FileCard({ file, onClick, onMouseEnter }: { file: FileItem; onClick: ()
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       className="group relative hover:-translate-y-1 text-left w-full transition-all duration-200"
-      style={{ contentVisibility: 'auto', containIntrinsicSize: '0 280px' }}
     >
       <div className="relative mb-2 overflow-hidden rounded-xl">
         <Thumbnail fileKey={file.key} />
@@ -430,18 +429,13 @@ function FileModal({
     const keys = nextFileKeys.split(',').filter(Boolean);
     const timeoutIds: ReturnType<typeof setTimeout>[] = [];
     
-    // Wait before starting prefetch to not compete with thumbnails
-    // Only prefetch the next 2 files to reduce bandwidth competition
-    const startDelay = setTimeout(() => {
-      keys.slice(0, 2).forEach((key, index) => {
-        const timeoutId = setTimeout(() => {
-          prefetchPdf(key);
-        }, index * 500); // 500ms delay between each prefetch
-        timeoutIds.push(timeoutId);
-      });
-    }, 1000); // Wait 1 second before starting any prefetch
-    
-    timeoutIds.push(startDelay);
+    // Prefetch next 5 files with staggered delays
+    keys.forEach((key, index) => {
+      const timeoutId = setTimeout(() => {
+        prefetchPdf(key);
+      }, index * 100);
+      timeoutIds.push(timeoutId);
+    });
     
     return () => {
       timeoutIds.forEach(clearTimeout);
@@ -806,7 +800,8 @@ export function FileBrowser() {
             <FileCard 
               key={file.key} 
               file={file} 
-              onClick={() => setOpenFile(file.key)}
+              onClick={() => setOpenFile(file.key)} 
+              onMouseEnter={() => prefetchPdf(file.key)}
             />
           ))}
         </div>
