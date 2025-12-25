@@ -15,7 +15,48 @@ const nextConfig: NextConfig = {
   
   // Experimental features for better performance
   experimental: {
-    optimizePackageImports: ['pdfjs-dist', '@tanstack/react-virtual'],
+    optimizePackageImports: ['pdfjs-dist', '@tanstack/react-virtual', 'lucide-react'],
+  },
+  
+  // Webpack optimizations
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // Optimize client-side bundle
+      config.optimization = {
+        ...config.optimization,
+        moduleIds: 'deterministic',
+        runtimeChunk: 'single',
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            default: false,
+            vendors: false,
+            // Vendor chunk for heavy libraries
+            vendor: {
+              name: 'vendor',
+              chunks: 'all',
+              test: /node_modules/,
+              priority: 20,
+            },
+            // Separate chunk for PDF.js (large library)
+            pdfjs: {
+              name: 'pdfjs',
+              test: /[\\/]node_modules[\\/]pdfjs-dist[\\/]/,
+              chunks: 'async',
+              priority: 30,
+            },
+            // Separate chunk for celebrity data (large)
+            celebrity: {
+              name: 'celebrity',
+              test: /[\\/]lib[\\/]celebrity-data/,
+              chunks: 'async',
+              priority: 25,
+            },
+          },
+        },
+      };
+    }
+    return config;
   },
   
   // Headers for caching
