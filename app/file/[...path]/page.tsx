@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getPdfPages, setPdfPages } from "@/lib/cache";
 import { useFiles } from "@/lib/files-context";
-import { CELEBRITY_DATA } from "@/lib/celebrity-data";
 import { CelebrityDisclaimer } from "@/components/celebrity-disclaimer";
 
 const WORKER_URL = process.env.NODE_ENV === "development" 
@@ -14,6 +13,46 @@ const WORKER_URL = process.env.NODE_ENV === "development"
 
 // Track in-progress prefetch operations to avoid duplicates
 const prefetchingSet = new Set<string>();
+
+// Optimized celebrity lookup index - shared with file-browser
+let celebrityPageIndex: Map<string, Map<number, { name: string; confidence: number }[]>> | null = null;
+
+function buildCelebrityPageIndex(): Map<string, Map<number, { name: string; confidence: number }[]>> {
+  if (celebrityPageIndex) return celebrityPageIndex;
+  
+  // Lazy load celebrity data only when needed
+  const { CELEBRITY_DATA } = require("@/lib/celebrity-data");
+  
+  const index = new Map<string, Map<number, { name: string; confidence: number }[]>>();
+  
+  for (const celebrity of CELEBRITY_DATA) {
+    for (const appearance of celebrity.appearances) {
+      if (appearance.confidence > 99) {
+        if (!index.has(appearance.file)) {
+          index.set(appearance.file, new Map());
+        }
+        const pageMap = index.get(appearance.file)!;
+        if (!pageMap.has(appearance.page)) {
+          pageMap.set(appearance.page, []);
+        }
+        pageMap.get(appearance.page)!.push({
+          name: celebrity.name,
+          confidence: appearance.confidence
+        });
+      }
+    }
+  }
+  
+  // Sort each page's celebrities by confidence
+  for (const pageMap of index.values()) {
+    for (const celebrities of pageMap.values()) {
+      celebrities.sort((a, b) => b.confidence - a.confidence);
+    }
+  }
+  
+  celebrityPageIndex = index;
+  return index;
+}
 
 async function prefetchPdf(filePath: string): Promise<void> {
   // Skip if already cached or already prefetching
@@ -68,25 +107,12 @@ function getFileId(key: string): string {
   return match ? match[0] : key;
 }
 
-// Get celebrities for a specific file and page
+// Get celebrities for a specific file and page - optimized with index
 function getCelebritiesForPage(filePath: string, pageNumber: number): { name: string; confidence: number }[] {
-  const celebrities: { name: string; confidence: number }[] = [];
-  
-  for (const celebrity of CELEBRITY_DATA) {
-    for (const appearance of celebrity.appearances) {
-      // The appearance.file contains paths like "VOL00002/IMAGES/0001/EFTA00003324.pdf"
-      // filePath also should be in similar format
-      if (appearance.file === filePath && appearance.page === pageNumber) {
-        celebrities.push({
-          name: celebrity.name,
-          confidence: appearance.confidence
-        });
-      }
-    }
-  }
-  
-  // Sort by confidence (highest first)
-  return celebrities.sort((a, b) => b.confidence - a.confidence).filter(celeb => celeb.confidence > 99);
+  const index = buildCelebrityPageIndex();
+  const pageMap = index.get(filePath);
+  if (!pageMap) return [];
+  return pageMap.get(pageNumber) || [];
 }
 
 // Component to display a page with its celebrity info
@@ -114,6 +140,8 @@ function PageWithCelebrities({
           alt={`Page ${pageNumber}`}
           className="w-full h-auto md:max-h-[75vh] md:w-auto md:mx-auto"
           style={{ maxWidth: "100%" }}
+          loading="lazy"
+          decoding="async"
         />
       </div>
       {celebrities.length > 0 && (
