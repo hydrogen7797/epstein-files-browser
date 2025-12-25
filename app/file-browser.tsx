@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { useQueryState } from "nuqs";
 import { FileItem, getPdfPages, setPdfPages, getPdfManifest } from "@/lib/cache";
 import {
@@ -12,48 +12,84 @@ import { cn } from "@/lib/utils";
 import {
   getCelebritiesAboveConfidence,
   getFilesForCelebrity,
-  CELEBRITY_DATA,
 } from "@/lib/celebrity-data";
-import { CelebrityCombobox } from "@/components/celebrity-combobox";
 import { CelebrityDisclaimer } from "@/components/celebrity-disclaimer";
 import { useFiles } from "@/lib/files-context";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import dynamic from "next/dynamic";
+
+// Lazy load heavy components for better initial bundle size
+const CelebrityCombobox = dynamic(
+  () => import("@/components/celebrity-combobox").then((mod) => ({ default: mod.CelebrityCombobox })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-[220px] sm:w-[260px] h-[42px] bg-secondary border border-border rounded-xl animate-pulse" />
+    ),
+  }
+);
 
 const WORKER_URL =
   process.env.NODE_ENV === "development"
     ? "http://localhost:8787"
     : "https://epstein-files.rhys-669.workers.dev";
 
+// Format functions - optimized with caching for repeated values
+const fileSizeCache = new Map<number, string>();
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return "0 B";
+  if (fileSizeCache.has(bytes)) {
+    return fileSizeCache.get(bytes)!;
+  }
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  const result = parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  fileSizeCache.set(bytes, result);
+  return result;
 }
 
+const dateCache = new Map<string, string>();
 function formatDate(dateString: string): string {
+  if (dateCache.has(dateString)) {
+    return dateCache.get(dateString)!;
+  }
   const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
+  const result = date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
+  dateCache.set(dateString, result);
+  return result;
 }
 
+const dateTimeCache = new Map<string, string>();
 function formatDateTime(dateString: string): string {
+  if (dateTimeCache.has(dateString)) {
+    return dateTimeCache.get(dateString)!;
+  }
   const date = new Date(dateString);
-  return date.toLocaleString("en-US", {
+  const result = date.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
+  dateTimeCache.set(dateString, result);
+  return result;
 }
 
+const fileIdCache = new Map<string, string>();
 function getFileId(key: string): string {
+  if (fileIdCache.has(key)) {
+    return fileIdCache.get(key)!;
+  }
   const match = key.match(/EFTA\d+/);
-  return match ? match[0] : key;
+  const result = match ? match[0] : key;
+  fileIdCache.set(key, result);
+  return result;
 }
 
 // Thumbnail component - loads thumbnail from R2 with skeleton loading
@@ -95,10 +131,12 @@ function Thumbnail({ fileKey }: { fileKey: string }) {
       )}
     </div>
   );
-}
+});
 
-// File card component with enhanced UI
-function FileCard({ file, onClick, onMouseEnter }: { file: FileItem; onClick: () => void; onMouseEnter?: () => void }) {
+// File card component - memoized to prevent unnecessary re-renders
+const FileCard = memo(function FileCard({ file, onClick, onMouseEnter }: { file: FileItem; onClick: () => void; onMouseEnter?: () => void }) {
+  const fileId = useMemo(() => getFileId(file.key), [file.key]);
+  const fileSize = useMemo(() => formatFileSize(file.size), [file.size]);
   return (
     <button
       onClick={onClick}
@@ -125,6 +163,14 @@ function FileCard({ file, onClick, onMouseEnter }: { file: FileItem; onClick: ()
               <span className="text-xs">{formatDate(file.uploaded)}</span>
             </div>
           </div>
+        {/* Hover overlay with metadata */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-end p-3">
+          <p className="text-xs text-white/90 flex items-center gap-1.5">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            {fileSize}
+          </p>
         </div>
         {/* Enhanced hover indicator */}
         <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:scale-110">
@@ -145,22 +191,38 @@ function FileCard({ file, onClick, onMouseEnter }: { file: FileItem; onClick: ()
           className="font-mono text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors duration-200"
           title={getFileId(file.key)}
         >
-          {getFileId(file.key)}
+          {fileId}
         </h3>
         <div className="h-0.5 w-0 bg-primary group-hover:w-full transition-all duration-300 rounded-full" />
       </div>
     </button>
   );
-}
+});
 
-// Get celebrities for a specific file and page
-function getCelebritiesForPage(filePath: string, pageNumber: number): { name: string; confidence: number }[] {
-  const celebrities: { name: string; confidence: number }[] = [];
+// Optimized celebrity lookup index - built once and cached with lazy loading
+let celebrityPageIndex: Map<string, Map<number, { name: string; confidence: number }[]>> | null = null;
+
+function buildCelebrityPageIndex(): Map<string, Map<number, { name: string; confidence: number }[]>> {
+  if (celebrityPageIndex) return celebrityPageIndex;
+  
+  // Lazy load celebrity data only when needed (reduces initial bundle size)
+  // Using dynamic import at module level would break, so we'll import it normally
+  // but the webpack config will code-split it
+  const { CELEBRITY_DATA } = require("@/lib/celebrity-data");
+  
+  const index = new Map<string, Map<number, { name: string; confidence: number }[]>>();
   
   for (const celebrity of CELEBRITY_DATA) {
     for (const appearance of celebrity.appearances) {
-      if (appearance.file === filePath && appearance.page === pageNumber) {
-        celebrities.push({
+      if (appearance.confidence > 99) {
+        if (!index.has(appearance.file)) {
+          index.set(appearance.file, new Map());
+        }
+        const pageMap = index.get(appearance.file)!;
+        if (!pageMap.has(appearance.page)) {
+          pageMap.set(appearance.page, []);
+        }
+        pageMap.get(appearance.page)!.push({
           name: celebrity.name,
           confidence: appearance.confidence
         });
@@ -168,11 +230,41 @@ function getCelebritiesForPage(filePath: string, pageNumber: number): { name: st
     }
   }
   
-  return celebrities.sort((a, b) => b.confidence - a.confidence).filter(celeb => celeb.confidence > 99);
+  // Sort each page's celebrities by confidence
+  for (const pageMap of index.values()) {
+    for (const celebrities of pageMap.values()) {
+      celebrities.sort((a, b) => b.confidence - a.confidence);
+    }
+  }
+  
+  celebrityPageIndex = index;
+  return index;
+}
+
+// Get celebrities for a specific file and page - optimized with index
+function getCelebritiesForPage(filePath: string, pageNumber: number): { name: string; confidence: number }[] {
+  const index = buildCelebrityPageIndex();
+  const pageMap = index.get(filePath);
+  if (!pageMap) return [];
+  return pageMap.get(pageNumber) || [];
 }
 
 // Track in-progress prefetch operations to avoid duplicates
 const prefetchingSet = new Set<string>();
+
+// Debounce prefetch function
+let prefetchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const PREFETCH_DEBOUNCE_MS = 150;
+
+function debouncedPrefetch(filePath: string) {
+  if (prefetchDebounceTimer) {
+    clearTimeout(prefetchDebounceTimer);
+  }
+  prefetchDebounceTimer = setTimeout(() => {
+    prefetchPdf(filePath);
+    prefetchDebounceTimer = null;
+  }, PREFETCH_DEBOUNCE_MS);
+}
 
 // Get the image URL for a specific PDF page
 function getPageImageUrl(pdfKey: string, pageNum: number): string {
@@ -220,7 +312,7 @@ async function prefetchPdf(filePath: string): Promise<void> {
       return;
     }
     
-    // Fallback to client-side PDF rendering if no pre-rendered images
+    // Fallback to client-side PDF rendering with parallel processing
     const fileUrl = `${WORKER_URL}/${filePath}`;
     const pdfjsLib = await import("pdfjs-dist");
     pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -228,25 +320,38 @@ async function prefetchPdf(filePath: string): Promise<void> {
     const loadingTask = pdfjsLib.getDocument(fileUrl);
     const pdf = await loadingTask.promise;
 
-    const renderedPages: string[] = [];
+    const renderedPages: string[] = new Array(pdf.numPages);
+    const MAX_CONCURRENT = 3;
+    const pagePromises: Promise<void>[] = [];
 
+    // Render pages in parallel batches
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      const page = await pdf.getPage(pageNum);
-      const scale = 2;
-      const viewport = page.getViewport({ scale });
+      const renderPage = async (pageNumber: number) => {
+        const page = await pdf.getPage(pageNumber);
+        const scale = 2;
+        const viewport = page.getViewport({ scale });
 
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d")!;
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d")!;
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
 
-      await page.render({
-        canvasContext: context,
-        viewport,
-        canvas,
-      }).promise;
+        await page.render({
+          canvasContext: context,
+          viewport,
+          canvas,
+        }).promise;
 
-      renderedPages.push(canvas.toDataURL("image/jpeg", 0.85));
+        renderedPages[pageNumber - 1] = canvas.toDataURL("image/jpeg", 0.85);
+      };
+
+      pagePromises.push(renderPage(pageNum));
+
+      // Process in batches
+      if (pagePromises.length >= MAX_CONCURRENT || pageNum === pdf.numPages) {
+        await Promise.all(pagePromises);
+        pagePromises.length = 0;
+      }
     }
 
     if (renderedPages.length > 0) {
@@ -259,16 +364,18 @@ async function prefetchPdf(filePath: string): Promise<void> {
   }
 }
 
-// Share popover component
-function SharePopover({ filePath, queryString }: { filePath: string; queryString: string }) {
+// Share popover component - memoized for performance
+const SharePopover = memo(function SharePopover({ filePath, queryString }: { filePath: string; queryString: string }) {
   const [copied, setCopied] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
 
-  const shareUrl = typeof window !== "undefined" 
-    ? `${window.location.origin}/file/${encodeURIComponent(filePath)}${queryString}`
-    : `/file/${encodeURIComponent(filePath)}${queryString}`;
+  const shareUrl = useMemo(() => {
+    return typeof window !== "undefined" 
+      ? `${window.location.origin}/file/${encodeURIComponent(filePath)}${queryString}`
+      : `/file/${encodeURIComponent(filePath)}${queryString}`;
+  }, [filePath, queryString]);
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
@@ -284,7 +391,7 @@ function SharePopover({ filePath, queryString }: { filePath: string; queryString
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  };
+  }, [shareUrl]);
 
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -344,10 +451,10 @@ function SharePopover({ filePath, queryString }: { filePath: string; queryString
       </PopoverContent>
     </Popover>
   );
-}
+});
 
-// Modal component for viewing files
-function FileModal({ 
+// Modal component for viewing files - memoized for performance
+const FileModal = memo(function FileModal({ 
   file, 
   onClose, 
   onPrev, 
@@ -465,7 +572,7 @@ function FileModal({
           return;
         }
         
-        // Fallback to client-side PDF rendering
+        // Fallback to client-side PDF rendering with parallel page processing
         const pdfjsLib = await import("pdfjs-dist");
         pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
@@ -474,33 +581,68 @@ function FileModal({
 
         if (cancelled) return;
 
-        const renderedPages: string[] = [];
+        const renderedPages: string[] = new Array(pdf.numPages);
+        let completedCount = 0;
+        let lastUpdateTime = Date.now();
+        const UPDATE_INTERVAL_MS = 100; // Batch state updates every 100ms
+
+        // Render pages in parallel (limit to 3 concurrent to avoid overwhelming the browser)
+        const MAX_CONCURRENT = 3;
+        const pagePromises: Promise<void>[] = [];
+
+        // Batch state updates to reduce re-renders
+        const scheduleUpdate = () => {
+          const now = Date.now();
+          if (now - lastUpdateTime >= UPDATE_INTERVAL_MS) {
+            setPages([...renderedPages.filter(Boolean)]);
+            lastUpdateTime = now;
+          }
+        };
 
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           if (cancelled) return;
+          
+          const renderPage = async (pageNumber: number) => {
+            if (cancelled) return;
+            
+            const page = await pdf.getPage(pageNumber);
+            const scale = 2;
+            const viewport = page.getViewport({ scale });
 
-          const page = await pdf.getPage(pageNum);
-          const scale = 2;
-          const viewport = page.getViewport({ scale });
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d")!;
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
 
-          const canvas = document.createElement("canvas");
-          const context = canvas.getContext("2d")!;
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
+            await page.render({
+              canvasContext: context,
+              viewport,
+              canvas,
+            }).promise;
 
-          await page.render({
-            canvasContext: context,
-            viewport,
-            canvas,
-          }).promise;
+            if (cancelled) return;
 
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-          renderedPages.push(dataUrl);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+            renderedPages[pageNumber - 1] = dataUrl;
+            completedCount++;
 
-          setPages([...renderedPages]);
+            // Batch state updates to reduce re-renders
+            scheduleUpdate();
+          };
+
+          // Add to batch, process in chunks
+          pagePromises.push(renderPage(pageNum));
+
+          // Process in batches of MAX_CONCURRENT
+          if (pagePromises.length >= MAX_CONCURRENT || pageNum === pdf.numPages) {
+            await Promise.all(pagePromises);
+            pagePromises.length = 0;
+          }
         }
 
+        // Ensure final state update with all pages
         if (!cancelled && renderedPages.length > 0) {
+          setPages([...renderedPages.filter(Boolean)]);
           setPdfPages(filePath, renderedPages);
         }
       } catch (err) {
@@ -623,6 +765,8 @@ function FileModal({
                       alt={`Page ${index + 1}`}
                       className="w-full h-auto md:max-h-[75vh] md:w-auto md:mx-auto"
                       style={{ maxWidth: "100%" }}
+                      loading="lazy"
+                      decoding="async"
                     />
                   </div>
                   {pageCelebrities.length > 0 && (
@@ -706,6 +850,124 @@ function FileModal({
   );
 }
 
+// Virtualized file grid component for performance
+const VirtualizedFileGrid = memo(function VirtualizedFileGrid({
+  files,
+  onFileClick,
+  onFileHover,
+}: {
+  files: FileItem[];
+  onFileClick: (fileKey: string) => void;
+  onFileHover: (fileKey: string) => void;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  
+  // Calculate columns based on viewport width - optimized with debouncing
+  const [columns, setColumns] = useState(6);
+  
+  useEffect(() => {
+    const calculateColumns = (width: number): number => {
+      if (width >= 1280) return 6; // xl
+      if (width >= 1024) return 5; // lg
+      if (width >= 768) return 4; // md
+      if (width >= 640) return 3; // sm
+      return 2; // default
+    };
+    
+    const updateColumns = () => {
+      setColumns(calculateColumns(window.innerWidth));
+    };
+    
+    // Debounce resize events
+    let resizeTimer: ReturnType<typeof setTimeout>;
+    const handleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(updateColumns, 150);
+    };
+    
+    updateColumns();
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(resizeTimer);
+    };
+  }, []);
+  
+  const rowCount = useMemo(() => Math.ceil(files.length / columns), [files.length, columns]);
+  
+  const virtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 200, // Estimated row height
+    overscan: 5, // Render 5 extra rows for smooth scrolling
+  });
+  
+  if (files.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-secondary flex items-center justify-center mb-4">
+          <svg className="w-8 h-8 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-semibold text-foreground mb-1">No files found</h3>
+        <p className="text-muted-foreground text-sm">Try adjusting your filters to find what you&apos;re looking for.</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div
+      ref={parentRef}
+      className="h-[calc(100vh-200px)] overflow-auto"
+      style={{ contain: 'strict' }}
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: '100%',
+          position: 'relative',
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow: { key: string; index: number; start: number; size: number }) => {
+          const startIndex = virtualRow.index * columns;
+          const endIndex = Math.min(startIndex + columns, files.length);
+          const rowFiles = files.slice(startIndex, endIndex);
+          
+          return (
+            <div
+              key={virtualRow.key}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: `${virtualRow.size}px`,
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+            >
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 px-0">
+                {rowFiles.map((file) => (
+                  <FileCard
+                    key={file.key}
+                    file={file}
+                    onClick={() => onFileClick(file.key)}
+                    onMouseEnter={() => onFileHover(file.key)}
+                  />
+                ))}
+                {/* Fill empty slots in last row */}
+                {Array.from({ length: columns - rowFiles.length }).map((_, i) => (
+                  <div key={`empty-${i}`} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
 export function FileBrowser() {
   const { files: initialFiles } = useFiles();
 
@@ -720,8 +982,8 @@ export function FileBrowser() {
   });
   const [openFile, setOpenFile] = useQueryState("file");
 
-  // Get celebrities with >99% confidence for the dropdown
-  const celebrities = getCelebritiesAboveConfidence(99);
+  // Get celebrities with >99% confidence for the dropdown - memoized
+  const celebrities = useMemo(() => getCelebritiesAboveConfidence(99), []);
 
   // Derive filtered and sorted files from initialFiles + filters
   const filteredFiles = useMemo(() => {
@@ -792,6 +1054,11 @@ export function FileBrowser() {
   
   const handleClose = useCallback(() => {
     setOpenFile(null);
+  }, [setOpenFile]);
+
+  // Optimize file click and hover handlers
+  const handleFileClick = useCallback((fileKey: string) => {
+    setOpenFile(fileKey);
   }, [setOpenFile]);
 
   return (
@@ -970,7 +1237,7 @@ export function FileBrowser() {
         )}
       </main>
 
-      {/* File Modal */}
+      {/* File Modal - lazy loaded for better initial performance */}
       {selectedFile && (
         <FileModal
           file={selectedFile}

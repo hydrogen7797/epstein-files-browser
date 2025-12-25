@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { memo, useMemo } from "react";
 import { Check, ChevronsUpDown, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,14 +30,17 @@ interface CelebrityComboboxProps {
   onValueChange: (value: string) => void;
 }
 
-export function CelebrityCombobox({
+export const CelebrityCombobox = memo(function CelebrityCombobox({
   celebrities,
   value,
   onValueChange,
 }: CelebrityComboboxProps) {
   const [open, setOpen] = React.useState(false);
 
-  const selectedCelebrity = celebrities.find((c) => c.name === value);
+  const selectedCelebrity = useMemo(
+    () => celebrities.find((c) => c.name === value),
+    [celebrities, value]
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -123,4 +127,4 @@ export function CelebrityCombobox({
       </PopoverContent>
     </Popover>
   );
-}
+});
