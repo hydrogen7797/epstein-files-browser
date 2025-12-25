@@ -74,8 +74,17 @@ export default async function RootLayout({
     fetchPdfManifest(),
   ]);
 
+  const workerUrl = "https://epstein-files.rhys-669.workers.dev";
+
   return (
     <html lang="en">
+      <head>
+        {/* Resource hints for better performance */}
+        <link rel="preconnect" href={workerUrl} crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href={workerUrl} />
+        {/* Preconnect to CDN for PDF.js worker */}
+        <link rel="preconnect" href="https://unpkg.com" crossOrigin="anonymous" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
