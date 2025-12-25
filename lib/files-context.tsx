@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, ReactNode, useMemo, useEffect } from "react";
+import { createContext, useContext, ReactNode, useMemo, useEffect, useCallback } from "react";
 import { FileItem, PdfManifest, setPdfManifest } from "./cache";
 import { getFilesForCelebrity } from "./celebrity-data";
 
@@ -77,29 +77,42 @@ export function FilesProvider({
     return map;
   }, [sortedFiles]);
 
-  // Get the full file path for a given file ID
-  const getFilePath = (fileId: string): string | null => {
+  // Get the full file path for a given file ID - memoized
+  const getFilePath = useCallback((fileId: string): string | null => {
     return fileIdToPath.get(fileId) ?? null;
-  };
+  }, [fileIdToPath]);
 
-  // Get adjacent file path (prev/next) with optional filters
-  const getAdjacentFile = (
+  // Memoize filtered file keys to avoid recalculating
+  const filteredKeysCache = useMemo(() => new Map<string, string[]>(), []);
+
+  // Get adjacent file path (prev/next) with optional filters - optimized with caching
+  const getAdjacentFile = useCallback((
     currentPath: string, 
     offset: number,
     filters?: { collection?: string; celebrity?: string }
   ): string | null => {
-    // Get the appropriate file list based on filters
+    // Create cache key from filters
+    const cacheKey = filters 
+      ? `${filters.collection || "All"}-${filters.celebrity || "All"}`
+      : "all";
+    
+    // Get or compute filtered file keys
     let fileKeys: string[];
-    if (filters && (filters.collection !== "All" || filters.celebrity !== "All")) {
-      fileKeys = getFilteredFileKeys(sortedFiles, filters);
-      // Sort the filtered keys by file ID
-      fileKeys.sort((a, b) => {
-        const idA = getFileId(a);
-        const idB = getFileId(b);
-        return idA.localeCompare(idB);
-      });
+    if (!filteredKeysCache.has(cacheKey)) {
+      if (filters && (filters.collection !== "All" || filters.celebrity !== "All")) {
+        fileKeys = getFilteredFileKeys(sortedFiles, filters);
+        // Sort the filtered keys by file ID
+        fileKeys.sort((a, b) => {
+          const idA = getFileId(a);
+          const idB = getFileId(b);
+          return idA.localeCompare(idB);
+        });
+      } else {
+        fileKeys = sortedFiles.map((f) => f.key);
+      }
+      filteredKeysCache.set(cacheKey, fileKeys);
     } else {
-      fileKeys = sortedFiles.map((f) => f.key);
+      fileKeys = filteredKeysCache.get(cacheKey)!;
     }
     
     const currentIndex = fileKeys.findIndex((key) => key === currentPath);
@@ -109,10 +122,18 @@ export function FilesProvider({
     if (newIndex < 0 || newIndex >= fileKeys.length) return null;
 
     return fileKeys[newIndex];
-  };
+  }, [sortedFiles, filteredKeysCache]);
+
+  // Memoize context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
+    files: sortedFiles,
+    pdfManifest,
+    getFilePath,
+    getAdjacentFile,
+  }), [sortedFiles, pdfManifest, getFilePath, getAdjacentFile]);
 
   return (
-    <FilesContext.Provider value={{ files: sortedFiles, pdfManifest, getFilePath, getAdjacentFile }}>
+    <FilesContext.Provider value={contextValue}>
       {children}
     </FilesContext.Provider>
   );
