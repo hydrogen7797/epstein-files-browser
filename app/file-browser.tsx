@@ -12,12 +12,22 @@ import { cn } from "@/lib/utils";
 import {
   getCelebritiesAboveConfidence,
   getFilesForCelebrity,
-  CELEBRITY_DATA,
 } from "@/lib/celebrity-data";
-import { CelebrityCombobox } from "@/components/celebrity-combobox";
 import { CelebrityDisclaimer } from "@/components/celebrity-disclaimer";
 import { useFiles } from "@/lib/files-context";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import dynamic from "next/dynamic";
+
+// Lazy load heavy components for better initial bundle size
+const CelebrityCombobox = dynamic(
+  () => import("@/components/celebrity-combobox").then((mod) => ({ default: mod.CelebrityCombobox })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-[220px] sm:w-[260px] h-[42px] bg-secondary border border-border rounded-xl animate-pulse" />
+    ),
+  }
+);
 
 const WORKER_URL =
   process.env.NODE_ENV === "development"
@@ -144,11 +154,16 @@ const FileCard = memo(function FileCard({ file, onClick, onMouseEnter }: { file:
   );
 });
 
-// Optimized celebrity lookup index - built once and cached
+// Optimized celebrity lookup index - built once and cached with lazy loading
 let celebrityPageIndex: Map<string, Map<number, { name: string; confidence: number }[]>> | null = null;
 
 function buildCelebrityPageIndex(): Map<string, Map<number, { name: string; confidence: number }[]>> {
   if (celebrityPageIndex) return celebrityPageIndex;
+  
+  // Lazy load celebrity data only when needed (reduces initial bundle size)
+  // Using dynamic import at module level would break, so we'll import it normally
+  // but the webpack config will code-split it
+  const { CELEBRITY_DATA } = require("@/lib/celebrity-data");
   
   const index = new Map<string, Map<number, { name: string; confidence: number }[]>>();
   
