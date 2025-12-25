@@ -24,37 +24,62 @@ const WORKER_URL =
     ? "http://localhost:8787"
     : "https://epstein-files.rhys-669.workers.dev";
 
+// Format functions - optimized with caching for repeated values
+const fileSizeCache = new Map<number, string>();
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return "0 B";
+  if (fileSizeCache.has(bytes)) {
+    return fileSizeCache.get(bytes)!;
+  }
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  const result = parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+  fileSizeCache.set(bytes, result);
+  return result;
 }
 
+const dateCache = new Map<string, string>();
 function formatDate(dateString: string): string {
+  if (dateCache.has(dateString)) {
+    return dateCache.get(dateString)!;
+  }
   const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
+  const result = date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
   });
+  dateCache.set(dateString, result);
+  return result;
 }
 
+const dateTimeCache = new Map<string, string>();
 function formatDateTime(dateString: string): string {
+  if (dateTimeCache.has(dateString)) {
+    return dateTimeCache.get(dateString)!;
+  }
   const date = new Date(dateString);
-  return date.toLocaleString("en-US", {
+  const result = date.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });
+  dateTimeCache.set(dateString, result);
+  return result;
 }
 
+const fileIdCache = new Map<string, string>();
 function getFileId(key: string): string {
+  if (fileIdCache.has(key)) {
+    return fileIdCache.get(key)!;
+  }
   const match = key.match(/EFTA\d+/);
-  return match ? match[0] : key;
+  const result = match ? match[0] : key;
+  fileIdCache.set(key, result);
+  return result;
 }
 
 // Thumbnail component - loads thumbnail from R2
@@ -279,16 +304,18 @@ async function prefetchPdf(filePath: string): Promise<void> {
   }
 }
 
-// Share popover component
-function SharePopover({ filePath, queryString }: { filePath: string; queryString: string }) {
+// Share popover component - memoized for performance
+const SharePopover = memo(function SharePopover({ filePath, queryString }: { filePath: string; queryString: string }) {
   const [copied, setCopied] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
 
-  const shareUrl = typeof window !== "undefined" 
-    ? `${window.location.origin}/file/${encodeURIComponent(filePath)}${queryString}`
-    : `/file/${encodeURIComponent(filePath)}${queryString}`;
+  const shareUrl = useMemo(() => {
+    return typeof window !== "undefined" 
+      ? `${window.location.origin}/file/${encodeURIComponent(filePath)}${queryString}`
+      : `/file/${encodeURIComponent(filePath)}${queryString}`;
+  }, [filePath, queryString]);
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
@@ -304,7 +331,7 @@ function SharePopover({ filePath, queryString }: { filePath: string; queryString
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  };
+  }, [shareUrl]);
 
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -362,10 +389,10 @@ function SharePopover({ filePath, queryString }: { filePath: string; queryString
       </PopoverContent>
     </Popover>
   );
-}
+});
 
-// Modal component for viewing files
-function FileModal({ 
+// Modal component for viewing files - memoized for performance
+const FileModal = memo(function FileModal({ 
   file, 
   onClose, 
   onPrev, 
@@ -738,7 +765,7 @@ function FileModal({
 }
 
 // Virtualized file grid component for performance
-function VirtualizedFileGrid({
+const VirtualizedFileGrid = memo(function VirtualizedFileGrid({
   files,
   onFileClick,
   onFileHover,
@@ -749,25 +776,38 @@ function VirtualizedFileGrid({
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   
-  // Calculate columns based on viewport width
+  // Calculate columns based on viewport width - optimized with debouncing
   const [columns, setColumns] = useState(6);
   
   useEffect(() => {
+    const calculateColumns = (width: number): number => {
+      if (width >= 1280) return 6; // xl
+      if (width >= 1024) return 5; // lg
+      if (width >= 768) return 4; // md
+      if (width >= 640) return 3; // sm
+      return 2; // default
+    };
+    
     const updateColumns = () => {
-      const width = window.innerWidth;
-      if (width >= 1280) setColumns(6); // xl
-      else if (width >= 1024) setColumns(5); // lg
-      else if (width >= 768) setColumns(4); // md
-      else if (width >= 640) setColumns(3); // sm
-      else setColumns(2); // default
+      setColumns(calculateColumns(window.innerWidth));
+    };
+    
+    // Debounce resize events
+    let resizeTimer: ReturnType<typeof setTimeout>;
+    const handleResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(updateColumns, 150);
     };
     
     updateColumns();
-    window.addEventListener('resize', updateColumns);
-    return () => window.removeEventListener('resize', updateColumns);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(resizeTimer);
+    };
   }, []);
   
-  const rowCount = Math.ceil(files.length / columns);
+  const rowCount = useMemo(() => Math.ceil(files.length / columns), [files.length, columns]);
   
   const virtualizer = useVirtualizer({
     count: rowCount,
@@ -803,7 +843,7 @@ function VirtualizedFileGrid({
           position: 'relative',
         }}
       >
-        {virtualizer.getVirtualItems().map((virtualRow) => {
+        {virtualizer.getVirtualItems().map((virtualRow: { key: string; index: number; start: number; size: number }) => {
           const startIndex = virtualRow.index * columns;
           const endIndex = Math.min(startIndex + columns, files.length);
           const rowFiles = files.slice(startIndex, endIndex);
@@ -840,7 +880,7 @@ function VirtualizedFileGrid({
       </div>
     </div>
   );
-}
+});
 
 export function FileBrowser() {
   const { files: initialFiles } = useFiles();
@@ -856,8 +896,8 @@ export function FileBrowser() {
   });
   const [openFile, setOpenFile] = useQueryState("file");
 
-  // Get celebrities with >99% confidence for the dropdown
-  const celebrities = getCelebritiesAboveConfidence(99);
+  // Get celebrities with >99% confidence for the dropdown - memoized
+  const celebrities = useMemo(() => getCelebritiesAboveConfidence(99), []);
 
   // Derive filtered and sorted files from initialFiles + filters
   const filteredFiles = useMemo(() => {
@@ -928,6 +968,11 @@ export function FileBrowser() {
   
   const handleClose = useCallback(() => {
     setOpenFile(null);
+  }, [setOpenFile]);
+
+  // Optimize file click and hover handlers
+  const handleFileClick = useCallback((fileKey: string) => {
+    setOpenFile(fileKey);
   }, [setOpenFile]);
 
   return (
@@ -1048,13 +1093,13 @@ export function FileBrowser() {
       <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
         <VirtualizedFileGrid 
           files={filteredFiles}
-          onFileClick={(fileKey) => setOpenFile(fileKey)}
+          onFileClick={handleFileClick}
           onFileHover={debouncedPrefetch}
         />
 
       </main>
 
-      {/* File Modal */}
+      {/* File Modal - lazy loaded for better initial performance */}
       {selectedFile && (
         <FileModal
           file={selectedFile}
