@@ -790,6 +790,7 @@ export function FileBrowser() {
                 <option value="VOL00005">Volume 5</option>
                 <option value="VOL00006">Volume 6</option>
                 <option value="VOL00007">Volume 7</option>
+                <option value="VOL00008">Volume 8</option>
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
                 <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
