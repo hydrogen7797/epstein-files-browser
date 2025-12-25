@@ -6,14 +6,19 @@ import { FilesProvider } from "@/lib/files-context";
 import { FileItem, PdfManifest } from "@/lib/cache";
 import "./globals.css";
 
+// Optimize font loading with display swap for better performance
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
+  preload: true,
 });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
+  preload: true,
 });
 
 export const metadata: Metadata = {
