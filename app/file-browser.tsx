@@ -92,21 +92,44 @@ function getFileId(key: string): string {
   return result;
 }
 
-// Thumbnail component - loads thumbnail from R2
-const Thumbnail = memo(function Thumbnail({ fileKey }: { fileKey: string }) {
+// Thumbnail component - loads thumbnail from R2 with skeleton loading
+function Thumbnail({ fileKey }: { fileKey: string }) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const thumbnailUrl = `${WORKER_URL}/thumbnails/${fileKey.replace(".pdf", ".jpg")}`;
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={thumbnailUrl}
-      alt="Document thumbnail"
-      className="aspect-[3/4] w-full object-cover object-top bg-secondary rounded-xl"
-      loading="lazy"
-      width={300}
-      height={400}
-      decoding="async"
-    />
+    <div className="relative aspect-[3/4] w-full overflow-hidden rounded-xl bg-gradient-to-br from-secondary via-secondary/80 to-secondary/60">
+      {isLoading && (
+        <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-secondary/50 via-accent/20 to-secondary/50" />
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={thumbnailUrl}
+        alt="Document thumbnail"
+        className={cn(
+          "aspect-[3/4] w-full object-cover object-top transition-all duration-500",
+          isLoading ? "opacity-0 scale-105" : "opacity-100 scale-100",
+          hasError && "hidden"
+        )}
+        loading="lazy"
+        onLoad={() => setIsLoading(false)}
+        onError={() => {
+          setIsLoading(false);
+          setHasError(true);
+        }}
+      />
+      {hasError && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center p-4">
+            <svg className="w-12 h-12 mx-auto text-muted-foreground/50 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <p className="text-xs text-muted-foreground">Preview unavailable</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 });
 
@@ -114,15 +137,32 @@ const Thumbnail = memo(function Thumbnail({ fileKey }: { fileKey: string }) {
 const FileCard = memo(function FileCard({ file, onClick, onMouseEnter }: { file: FileItem; onClick: () => void; onMouseEnter?: () => void }) {
   const fileId = useMemo(() => getFileId(file.key), [file.key]);
   const fileSize = useMemo(() => formatFileSize(file.size), [file.size]);
-
   return (
     <button
       onClick={onClick}
       onMouseEnter={onMouseEnter}
-      className="group relative hover:-translate-y-1 text-left w-full transition-all duration-200"
+      className="group relative text-left w-full transition-all duration-300 hover:-translate-y-2 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-primary/50 focus:ring-offset-2 focus:ring-offset-background rounded-2xl"
     >
-      <div className="relative mb-2 overflow-hidden rounded-xl">
+      <div className="relative mb-3 overflow-hidden rounded-xl shadow-lg shadow-black/10 group-hover:shadow-xl group-hover:shadow-primary/10 transition-all duration-300">
         <Thumbnail fileKey={file.key} />
+        {/* Enhanced hover overlay with metadata */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-end p-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-white/95">
+              <div className="p-1.5 rounded-lg bg-white/10 backdrop-blur-sm">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <span className="text-xs font-medium">{formatFileSize(file.size)}</span>
+            </div>
+            <div className="flex items-center gap-2 text-white/80">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <span className="text-xs">{formatDate(file.uploaded)}</span>
+            </div>
+          </div>
         {/* Hover overlay with metadata */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex flex-col justify-end p-3">
           <p className="text-xs text-white/90 flex items-center gap-1.5">
@@ -132,23 +172,28 @@ const FileCard = memo(function FileCard({ file, onClick, onMouseEnter }: { file:
             {fileSize}
           </p>
         </div>
-        {/* Hover indicator */}
-        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <div className="w-7 h-7 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        {/* Enhanced hover indicator */}
+        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:scale-110">
+          <div className="w-8 h-8 rounded-full bg-white/25 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-lg">
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
             </svg>
           </div>
         </div>
+        {/* Shine effect on hover */}
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
+        </div>
       </div>
 
-      <div className="space-y-1">
+      <div className="space-y-1 px-1">
         <h3
-          className="font-mono text-sm font-medium text-foreground truncate group-hover:text-primary"
-          title={fileId}
+          className="font-mono text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors duration-200"
+          title={getFileId(file.key)}
         >
           {fileId}
         </h3>
+        <div className="h-0.5 w-0 bg-primary group-hover:w-full transition-all duration-300 rounded-full" />
       </div>
     </button>
   );
@@ -351,36 +396,38 @@ const SharePopover = memo(function SharePopover({ filePath, queryString }: { fil
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
-        <button className="p-2 sm:px-4 sm:py-2 bg-secondary hover:bg-accent rounded-xl text-sm font-medium flex items-center gap-2">
+        <button className="p-2 sm:px-4 sm:py-2 bg-gradient-to-r from-secondary/90 to-secondary/80 hover:from-secondary hover:to-secondary/90 border border-border/50 rounded-xl text-sm font-medium flex items-center gap-2 transition-all duration-200 hover:shadow-md hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/50">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
           </svg>
           <span className="hidden sm:inline">Share</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 p-3" align="end">
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-            </svg>
-            <span className="text-sm font-medium">Share this document</span>
+      <PopoverContent className="w-80 p-4 bg-gradient-to-br from-card via-card/95 to-card border border-border/50 rounded-2xl shadow-2xl" align="end">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 pb-3 border-b border-border/50">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+            </div>
+            <span className="text-sm font-semibold text-foreground">Share this document</span>
           </div>
           <div className="flex gap-2">
             <input
               type="text"
               value={shareUrl}
               readOnly
-              className="flex-1 px-3 py-2 text-xs bg-secondary border border-border rounded-lg text-foreground truncate"
+              className="flex-1 px-3 py-2.5 text-xs bg-secondary/80 border border-border/50 rounded-xl text-foreground truncate focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
               onClick={(e) => e.currentTarget.select()}
             />
             <button
               onClick={handleCopy}
               className={cn(
-                "px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors",
+                "px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-1.5 transition-all duration-200",
                 copied 
-                  ? "bg-green-500/20 text-green-400 border border-green-500/30" 
-                  : "bg-primary hover:bg-primary/90 text-primary-foreground"
+                  ? "bg-gradient-to-r from-green-500/20 to-green-500/10 text-green-400 border border-green-500/30 shadow-lg shadow-green-500/10" 
+                  : "bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary/80 text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 hover:scale-105"
               )}
             >
               {copied ? (
@@ -638,29 +685,36 @@ const FileModal = memo(function FileModal({
   }, [loading, nextFileKeys]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
+    <div className="fixed inset-0 z-50 flex items-center justify-center animate-in fade-in duration-200">
+      {/* Enhanced backdrop with gradient */}
       <div 
-        className="absolute inset-0 bg-background/95 backdrop-blur-sm"
+        className="absolute inset-0 bg-gradient-to-br from-background/98 via-background/95 to-background/98 backdrop-blur-md animate-in fade-in duration-200"
         onClick={onClose}
       />
       
-      {/* Modal content */}
-      <div className="relative w-full h-full flex flex-col">
-        {/* Header */}
-        <header className="flex-shrink-0 border-b border-border bg-card/80 backdrop-blur-xl z-10">
+      {/* Modal content with enhanced styling */}
+      <div className="relative w-full h-full flex flex-col animate-in zoom-in-95 duration-300">
+        {/* Enhanced header with gradient */}
+        <header className="flex-shrink-0 border-b border-border/50 bg-gradient-to-r from-card/95 via-card/90 to-card/95 backdrop-blur-xl z-10 shadow-lg shadow-black/5">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 sm:gap-4 min-w-0">
               <button
                 onClick={onClose}
-                className="p-2 rounded-xl bg-secondary hover:bg-accent text-muted-foreground hover:text-foreground flex-shrink-0"
+                className="p-2.5 rounded-xl bg-secondary/80 hover:bg-accent text-muted-foreground hover:text-foreground flex-shrink-0 transition-all duration-200 hover:scale-110 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/50"
                 aria-label="Close"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-              <h1 className="text-base sm:text-lg font-mono font-semibold text-foreground truncate">{fileId}</h1>
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <h1 className="text-base sm:text-lg font-mono font-semibold text-foreground truncate bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text">{fileId}</h1>
+              </div>
             </div>
 
             {/* Actions */}
@@ -716,23 +770,23 @@ const FileModal = memo(function FileModal({
                     />
                   </div>
                   {pageCelebrities.length > 0 && (
-                    <div className="bg-secondary/50 border-t border-border px-5 py-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
-                          <svg className="w-3.5 h-3.5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="bg-gradient-to-br from-secondary/60 via-secondary/40 to-secondary/60 border-t border-border/50 px-6 py-5 backdrop-blur-sm">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center border border-primary/20">
+                          <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                           </svg>
                         </div>
-                        <p className="text-sm font-medium text-foreground">Detected in this image:</p>
+                        <p className="text-sm font-semibold text-foreground">Detected in this image:</p>
                       </div>
-                      <div className="flex flex-wrap gap-2 mb-4">
+                      <div className="flex flex-wrap gap-2.5 mb-4">
                         {pageCelebrities.map((celeb, idx) => (
                           <span
                             key={idx}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm bg-card border border-border text-foreground"
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium bg-gradient-to-r from-card to-card/80 border border-border/50 text-foreground shadow-sm hover:shadow-md hover:scale-105 transition-all duration-200 hover:border-primary/30"
                           >
-                            <span>{celeb.name}</span>
-                            <span className="text-xs text-muted-foreground">({Math.round(celeb.confidence)}%)</span>
+                            <span className="font-semibold">{celeb.name}</span>
+                            <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">({Math.round(celeb.confidence)}%)</span>
                           </span>
                         ))}
                       </div>
@@ -745,45 +799,49 @@ const FileModal = memo(function FileModal({
           </div>
 
           {loading && (
-            <div className="flex flex-col items-center justify-center py-16 gap-5">
+            <div className="flex flex-col items-center justify-center py-20 gap-6">
               <div className="relative">
-                <div className="w-12 h-12 rounded-full border-2 border-secondary"></div>
-                <div className="absolute inset-0 w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
+                <div className="w-16 h-16 rounded-full border-4 border-secondary/30"></div>
+                <div className="absolute inset-0 w-16 h-16 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+                <div className="absolute inset-2 w-12 h-12 rounded-full border-2 border-primary/30 border-r-transparent animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1s' }}></div>
               </div>
-              <p className="text-foreground font-medium">Loading PDF...</p>
+              <div className="text-center space-y-2">
+                <p className="text-foreground font-semibold text-lg">Loading PDF...</p>
+                <p className="text-muted-foreground text-sm">Preparing document for viewing</p>
+              </div>
             </div>
           )}
         </div>
 
-        {/* Navigation bar */}
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 px-2 py-2 bg-card/90 backdrop-blur-sm border border-border rounded-full shadow-lg z-20">
+        {/* Enhanced navigation bar */}
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1 px-3 py-2.5 bg-gradient-to-r from-card/95 via-card/90 to-card/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl shadow-black/20 z-20 animate-in slide-in-from-bottom-4 duration-300">
           {hasPrev ? (
             <button
               onClick={onPrev}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded-full"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground hover:text-primary hover:bg-gradient-to-r hover:from-secondary/80 hover:to-secondary/60 rounded-xl transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/50"
             >
-              <kbd className="px-2 py-0.5 bg-secondary rounded-md font-mono text-xs text-foreground">←</kbd>
+              <kbd className="px-2.5 py-1 bg-secondary/80 rounded-lg font-mono text-xs font-bold text-foreground border border-border/50 shadow-sm">←</kbd>
               <span>Prev</span>
             </button>
           ) : (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground/50 cursor-not-allowed">
-              <kbd className="px-2 py-0.5 bg-secondary/50 rounded-md font-mono text-xs text-muted-foreground/50">←</kbd>
+            <div className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground/40 cursor-not-allowed">
+              <kbd className="px-2.5 py-1 bg-secondary/30 rounded-lg font-mono text-xs text-muted-foreground/30">←</kbd>
               <span>Prev</span>
             </div>
           )}
-          <div className="w-px h-4 bg-border"></div>
+          <div className="w-px h-6 bg-border/50 mx-1"></div>
           {hasNext ? (
             <button
               onClick={onNext}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded-full"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground hover:text-primary hover:bg-gradient-to-r hover:from-secondary/80 hover:to-secondary/60 rounded-xl transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-primary/50"
             >
               <span>Next</span>
-              <kbd className="px-2 py-0.5 bg-secondary rounded-md font-mono text-xs text-foreground">→</kbd>
+              <kbd className="px-2.5 py-1 bg-secondary/80 rounded-lg font-mono text-xs font-bold text-foreground border border-border/50 shadow-sm">→</kbd>
             </button>
           ) : (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground/50 cursor-not-allowed">
+            <div className="flex items-center gap-2 px-4 py-2 text-sm text-muted-foreground/40 cursor-not-allowed">
               <span>Next</span>
-              <kbd className="px-2 py-0.5 bg-secondary/50 rounded-md font-mono text-xs text-muted-foreground/50">→</kbd>
+              <kbd className="px-2.5 py-1 bg-secondary/30 rounded-lg font-mono text-xs text-muted-foreground/30">→</kbd>
             </div>
           )}
         </div>
@@ -1004,23 +1062,29 @@ export function FileBrowser() {
   }, [setOpenFile]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
-      {/* Header */}
-      <header className="border-b border-border bg-card/80 backdrop-blur-xl sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-3">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-background via-background to-background/95 text-foreground">
+      {/* Enhanced Header with gradient */}
+      <header className="border-b border-border/50 bg-gradient-to-r from-card/95 via-card/90 to-card/95 backdrop-blur-xl sticky top-0 z-10 shadow-lg shadow-black/5">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <div className="p-2.5 rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/20">
+                <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
               <div>
-                <h1 className="text-xl sm:text-2xl font-bold text-foreground tracking-tight">
+                <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground via-foreground to-foreground/80 bg-clip-text text-transparent tracking-tight">
                   Epstein Files Browser
                 </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1">Browse and explore released documents</p>
               </div>
             </div>
             <a
               href="https://github.com/RhysSullivan/epstein-files-browser"
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2.5 rounded-xl bg-secondary hover:bg-accent text-muted-foreground hover:text-foreground transition-all duration-200 hover:scale-105"
+              className="p-2.5 rounded-xl bg-secondary/80 hover:bg-accent text-muted-foreground hover:text-foreground transition-all duration-200 hover:scale-110 hover:shadow-lg border border-border/50 hover:border-border focus:outline-none focus:ring-2 focus:ring-primary/50"
               aria-label="View source on GitHub"
             >
               <svg
@@ -1067,11 +1131,11 @@ export function FileBrowser() {
               onValueChange={(value) => setCelebrityFilter(value)}
             />
 
-            <div className="relative">
+            <div className="relative group">
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="appearance-none px-4 py-2.5 pr-10 bg-secondary border border-border rounded-xl text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all cursor-pointer hover:bg-accent"
+                className="appearance-none px-4 py-2.5 pr-10 bg-gradient-to-r from-secondary/90 to-secondary/80 border border-border/50 rounded-xl text-foreground text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-200 cursor-pointer hover:from-secondary hover:to-secondary/90 hover:border-border hover:shadow-md"
               >
                 <option value="name">Sort by Name</option>
                 <option value="size-desc">Largest First</option>
@@ -1084,11 +1148,16 @@ export function FileBrowser() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 px-3 py-2 bg-secondary/50 rounded-xl">
-              <span className="text-sm font-medium text-muted-foreground">
-                {filteredFiles.length.toLocaleString()} files
+            <div className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-primary/10 via-primary/5 to-primary/10 border border-primary/20 rounded-xl backdrop-blur-sm">
+              <div className="p-1.5 rounded-lg bg-primary/10">
+                <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <span className="text-sm font-semibold text-foreground">
+                <span className="text-primary">{filteredFiles.length.toLocaleString()}</span> files
                 {collectionFilter !== "All" || celebrityFilter !== "All"
-                  ? <span className="text-foreground/50"> / {initialFiles.length.toLocaleString()}</span>
+                  ? <span className="text-muted-foreground font-normal"> / {initialFiles.length.toLocaleString()}</span>
                   : ""}
               </span>
             </div>
@@ -1117,14 +1186,55 @@ export function FileBrowser() {
         </div>
       )}
 
-      {/* File Grid with Virtual Scrolling */}
-      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 w-full">
-        <VirtualizedFileGrid 
-          files={filteredFiles}
-          onFileClick={handleFileClick}
-          onFileHover={debouncedPrefetch}
-        />
+      {/* Enhanced File Grid with staggered animations */}
+      <main className="flex-1 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+          {filteredFiles.map((file, index) => (
+            <div
+              key={file.key}
+              className="animate-fade-in-up"
+              style={{
+                animationDelay: `${Math.min(index * 30, 300)}ms`,
+                animationFillMode: 'both'
+              }}
+            >
+              <FileCard 
+                file={file} 
+                onClick={() => setOpenFile(file.key)} 
+                onMouseEnter={() => prefetchPdf(file.key)}
+              />
+            </div>
+          ))}
+        </div>
 
+        {/* Enhanced empty state */}
+        {filteredFiles.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-24 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="relative mb-6">
+              <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-secondary/60 via-secondary/40 to-secondary/60 flex items-center justify-center border border-border/50 shadow-xl">
+                <svg className="w-10 h-10 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div className="absolute -top-1 -right-1 w-6 h-6 bg-primary/20 rounded-full animate-pulse" />
+            </div>
+            <h3 className="text-xl font-bold text-foreground mb-2 bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">No files found</h3>
+            <p className="text-muted-foreground text-sm max-w-md">Try adjusting your filters to find what you&apos;re looking for.</p>
+            <div className="mt-6 flex gap-2">
+              {(collectionFilter !== "All" || celebrityFilter !== "All") && (
+                <button
+                  onClick={() => {
+                    setCollectionFilter("All");
+                    setCelebrityFilter("All");
+                  }}
+                  className="px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl text-sm font-medium transition-all duration-200 hover:scale-105 border border-primary/20"
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </main>
 
       {/* File Modal - lazy loaded for better initial performance */}
