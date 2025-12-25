@@ -307,31 +307,51 @@ export default function FilePage({
 
         setTotalPages(pdf.numPages);
 
-        const renderedPages: string[] = [];
+        const renderedPages: string[] = new Array(pdf.numPages);
+        let completedCount = 0;
+        const MAX_CONCURRENT = 3;
+        const pagePromises: Promise<void>[] = [];
 
+        // Render pages in parallel batches for better performance
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           if (cancelled) return;
 
-          const page = await pdf.getPage(pageNum);
-          const scale = 2;
-          const viewport = page.getViewport({ scale });
+          const renderPage = async (pageNumber: number) => {
+            if (cancelled) return;
+            
+            const page = await pdf.getPage(pageNumber);
+            const scale = 2;
+            const viewport = page.getViewport({ scale });
 
-          const canvas = document.createElement("canvas");
-          const context = canvas.getContext("2d")!;
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
+            const canvas = document.createElement("canvas");
+            const context = canvas.getContext("2d")!;
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
 
-          await page.render({
-            canvasContext: context,
-            viewport,
-            canvas,
-          }).promise;
+            await page.render({
+              canvasContext: context,
+              viewport,
+              canvas,
+            }).promise;
 
-          const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-          renderedPages.push(dataUrl);
+            if (cancelled) return;
 
-          // Update state progressively
-          setPages([...renderedPages]);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+            renderedPages[pageNumber - 1] = dataUrl;
+            completedCount++;
+
+            // Update state progressively as pages complete
+            setPages([...renderedPages.filter(Boolean)]);
+          };
+
+          // Add to batch, process in chunks
+          pagePromises.push(renderPage(pageNum));
+
+          // Process in batches of MAX_CONCURRENT
+          if (pagePromises.length >= MAX_CONCURRENT || pageNum === pdf.numPages) {
+            await Promise.all(pagePromises);
+            pagePromises.length = 0;
+          }
         }
 
         // Cache all pages when done
