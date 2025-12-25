@@ -536,14 +536,25 @@ const FileModal = memo(function FileModal({
 
         const renderedPages: string[] = new Array(pdf.numPages);
         let completedCount = 0;
+        let lastUpdateTime = Date.now();
+        const UPDATE_INTERVAL_MS = 100; // Batch state updates every 100ms
 
         // Render pages in parallel (limit to 3 concurrent to avoid overwhelming the browser)
         const MAX_CONCURRENT = 3;
         const pagePromises: Promise<void>[] = [];
 
+        // Batch state updates to reduce re-renders
+        const scheduleUpdate = () => {
+          const now = Date.now();
+          if (now - lastUpdateTime >= UPDATE_INTERVAL_MS) {
+            setPages([...renderedPages.filter(Boolean)]);
+            lastUpdateTime = now;
+          }
+        };
+
         for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
           if (cancelled) return;
-
+          
           const renderPage = async (pageNumber: number) => {
             if (cancelled) return;
             
@@ -568,8 +579,8 @@ const FileModal = memo(function FileModal({
             renderedPages[pageNumber - 1] = dataUrl;
             completedCount++;
 
-            // Update state progressively as pages complete
-            setPages([...renderedPages.filter(Boolean)]);
+            // Batch state updates to reduce re-renders
+            scheduleUpdate();
           };
 
           // Add to batch, process in chunks
@@ -582,7 +593,9 @@ const FileModal = memo(function FileModal({
           }
         }
 
+        // Ensure final state update with all pages
         if (!cancelled && renderedPages.length > 0) {
+          setPages([...renderedPages.filter(Boolean)]);
           setPdfPages(filePath, renderedPages);
         }
       } catch (err) {
