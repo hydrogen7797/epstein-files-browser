@@ -65,8 +65,16 @@ export function getPdfPages(key: string): string[] | undefined {
   const value = pdfPagesCache.get(key);
   if (value !== undefined) {
     // Move to end (most recently used) by re-inserting
-    pdfPagesCache.delete(key);
-    pdfPagesCache.set(key, value);
+    // Use requestIdleCallback for non-critical cache updates
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      requestIdleCallback(() => {
+        pdfPagesCache.delete(key);
+        pdfPagesCache.set(key, value);
+      });
+    } else {
+      pdfPagesCache.delete(key);
+      pdfPagesCache.set(key, value);
+    }
   }
   return value;
 }
